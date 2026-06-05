@@ -283,3 +283,391 @@ class IRRPGauge(tk.Canvas):
                         start=-(start - 180),
                         extent=-(end - start),
                         style="arc", outline=color, width=width)
+
+#  GRÁFICO DE BARRAS IRRP
+
+class IRRPBarChart(tk.Canvas):
+    def __init__(self, parent, **kw):
+        super().__init__(parent, bg=C["bg2"], highlightthickness=0, **kw)
+        self._dados = []
+        self._hover = None
+        self.bind("<Configure>", lambda _: self._draw())
+        self.bind("<Motion>", self._on_motion)
+        self.bind("<Leave>", self._on_leave)
+
+    def set_dados(self, dados):
+        self._dados = dados
+        self._hover = None
+        self._draw()
+
+    def _on_motion(self, e):
+        if not self._dados: return
+        W = self.winfo_width()
+        PAD_L, PAD_R = 44, 16
+        n = len(self._dados)
+        gw = W - PAD_L - PAD_R
+        idx = int((e.x - PAD_L) / (gw / n))
+        if 0 <= idx < n and idx != self._hover:
+            self._hover = idx
+            self._draw()
+
+    def _on_leave(self, _):
+        if self._hover is not None:
+            self._hover = None
+            self._draw()
+
+    def _draw(self):
+        self.delete("all")
+        dados = self._dados
+        W = self.winfo_width()
+        H = self.winfo_height()
+        if W < 30 or H < 30: return
+
+        if not dados:
+            self.create_text(W // 2, H // 2,
+                             text="Clique em Atualizar para carregar dados",
+                             fill=C["muted"], font=FONTS["small"])
+            return
+
+        n = len(dados)
+        PAD_L, PAD_R, PAD_T, PAD_B = 44, 16, 14, 46
+        gw = W - PAD_L - PAD_R
+        gh = H - PAD_T - PAD_B
+
+        # Faixas de fundo
+        y_alto = PAD_T + int(gh * (1 - 60 / 100))
+        y_mod = PAD_T + int(gh * (1 - 30 / 100))
+        y_bot = PAD_T + gh
+        self.create_rectangle(PAD_L, PAD_T, PAD_L + gw, y_alto, fill=C["band_alto"], outline="")
+        self.create_rectangle(PAD_L, y_alto, PAD_L + gw, y_mod, fill=C["band_mod"], outline="")
+        self.create_rectangle(PAD_L, y_mod, PAD_L + gw, y_bot, fill=C["band_low"], outline="")
+        self.create_rectangle(PAD_L, PAD_T, PAD_L + gw, y_bot, outline=C["border2"], fill="")
+
+        # Grades
+        for pct, cor, lbl in [(100, C["red"], "100"),
+                              (60, C["yellow"], " 60"),
+                              (30, C["green"], " 30"),
+                              (0, C["muted"], "  0")]:
+            y = PAD_T + int(gh * (1 - pct / 100))
+            self.create_line(PAD_L, y, PAD_L + gw, y,
+                             fill=cor, dash=(3, 4), width=1)
+            self.create_text(PAD_L - 4, y, text=lbl,
+                             fill=cor, anchor="e", font=FONTS["badge"])
+
+        # Barras
+        gap = max(1, int(gw / n * 0.15))
+        bar_w = max(3, int(gw / n) - gap)
+        hoje = datetime.now().strftime('%Y-%m-%d')
+
+        for i, d in enumerate(dados):
+            pct = max(0, min(100, d.get('irrp_pct', 0)))
+            cat = d.get('irrp_cat', 'BAIXO')
+            cor = irrp_color_hex(cat)
+            data = d.get('data', '')
+            is_hoje = (data == hoje)
+            is_hover = (i == self._hover)
+
+            x0 = PAD_L + int(i * gw / n) + gap // 2
+            x1 = x0 + bar_w
+            bh = max(0, int(gh * pct / 100))
+            y0 = PAD_T + gh - bh
+            y1 = PAD_T + gh
+
+            if bh > 0:
+                fill = blend_color(cor, "#FFFFFF", 0.15) if is_hover else cor
+                self.create_rectangle(x0, y0, x1, y1, fill=fill, outline="")
+                # Brilho topo
+                if bh > 4:
+                    self.create_rectangle(x0, y0, x1, y0 + 3,
+                                          fill=blend_color(cor, "#FFFFFF", 0.5),
+                                          outline="")
+                if bh >= 18:
+                    self.create_text((x0 + x1) // 2, y0 + 9,
+                                     text=str(pct),
+                                     fill=C["bg"], font=FONTS["badge"])
+
+            # Linha HOJE
+            if is_hoje:
+                cx = (x0 + x1) // 2
+                self.create_line(cx, PAD_T, cx, y_bot,
+                                 fill=C["gold"], dash=(3, 2), width=2)
+                self.create_text(cx, PAD_T - 6, text="HOJE",
+                                 fill=C["gold"], font=FONTS["badge"])
+
+            # Label data
+            if data:
+                cx = (x0 + x1) // 2
+                fg = C["gold"] if is_hoje else C["muted"]
+                self.create_text(cx, y_bot + 10,
+                                 text=data[5:],
+                                 fill=fg, font=FONTS["badge"],
+                                 angle=40 if n > 12 else 0)
+
+            # Tooltip
+            if is_hover and data:
+                tip = f"  {data}   IRRP {pct}%   {cat}  "
+                tx = min(max(PAD_L + 4, x0 - 40), W - 180)
+                self.create_rectangle(tx - 4, PAD_T + 2, tx + 178, PAD_T + 16,
+                                      fill=C["bg3"], outline=C["border2"])
+                self.create_text(tx, PAD_T + 9, text=tip,
+                                 fill=cor, font=FONTS["badge"], anchor="w")
+
+        # Rótulos zonas
+        rx = PAD_L + gw + 4
+        for y, lbl, cor in [
+            ((PAD_T + y_alto) // 2, "ALTO", C["red"]),
+            ((y_alto + y_mod) // 2, "MOD", C["yellow"]),
+            ((y_mod + y_bot) // 2, "OK", C["green"]),
+        ]:
+            self.create_text(rx, y, text=lbl, fill=cor,
+                             font=FONTS["badge"], anchor="w")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  APP PRINCIPAL
+# ══════════════════════════════════════════════════════════════════════════════
+class OrbeetApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("ORBEET — Inteligência Climática Orbital")
+        self.geometry("1180x740")
+        self.minsize(960, 640)
+        self.configure(bg=C["bg"])
+        self.resizable(True, True)
+
+        # Centralizar
+        self.update_idletasks()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        self.geometry(f"1180x740+{(sw - 1180) // 2}+{(sh - 740) // 2}")
+
+        self.usuarios, self.fazendas = carregar_dados()
+        self.usuario_logado = None
+        self.openai_api_key = ""
+        self._current_page = None
+        self._dados_historico = []
+
+        self._load_logo()
+        self._setup_styles()
+        self._build_layout()
+        self._show_login()
+
+    # ── Logo ────────────────────────────────────────────────────────────────
+    def _load_logo(self):
+        self._logo_img = None
+        self._logo_small = None
+        if not PIL_OK:
+            return
+        try:
+            raw = base64.b64decode(LOGO_B64)
+            img = Image.open(io.BytesIO(raw)).convert("RGBA")
+            # Versão login (grande)
+            lg = img.resize((90, 90), Image.LANCZOS)
+            self._logo_img = ImageTk.PhotoImage(lg)
+            # Versão sidebar (pequena)
+            sm = img.resize((44, 44), Image.LANCZOS)
+            self._logo_small = ImageTk.PhotoImage(sm)
+        except Exception:
+            pass
+
+    # ── Estilos ttk ─────────────────────────────────────────────────────────
+    def _setup_styles(self):
+        s = ttk.Style()
+        s.configure("TNotebook",
+                    background=C["bg"], borderwidth=0)
+        s.configure("TNotebook.Tab",
+                    background=C["bg2"], foreground=C["muted"],
+                    padding=[14, 7], font=FONTS["nav"])
+        s.map("TNotebook.Tab",
+              background=[("selected", C["bg4"])],
+              foreground=[("selected", C["gold"])])
+
+        s.configure("Orb.Treeview",
+                    background=C["bg2"], foreground=C["text2"],
+                    fieldbackground=C["bg2"], rowheight=28,
+                    font=FONTS["body"])
+        s.configure("Orb.Treeview.Heading",
+                    background=C["bg4"], foreground=C["gold"],
+                    font=FONTS["body_bold"], relief="flat")
+        s.map("Orb.Treeview",
+              background=[("selected", C["bg4"])],
+              foreground=[("selected", C["gold"])])
+
+        s.configure("TScrollbar",
+                    background=C["bg3"], troughcolor=C["bg"],
+                    arrowcolor=C["muted"])
+
+        s.configure("TCombobox",
+                    fieldbackground=C["entry_bg"],
+                    background=C["bg4"],
+                    foreground=C["text"],
+                    selectbackground=C["bg4"],
+                    arrowcolor=C["gold"])
+
+    # ── Layout base ─────────────────────────────────────────────────────────
+    def _build_layout(self):
+        # ─ Sidebar ──────────────────────────────────────────────────────────
+        self.sidebar = tk.Frame(self, bg=C["bg2"], width=220)
+        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack_propagate(False)
+
+        # Faixa dourada lateral
+        tk.Frame(self.sidebar, bg=C["gold"], width=3).place(
+            relx=1.0, rely=0.0, relheight=1.0, anchor="ne")
+
+        # Logo + título
+        logo_frame = tk.Frame(self.sidebar, bg=C["bg2"])
+        logo_frame.pack(fill="x", pady=(24, 4))
+        if self._logo_small:
+            tk.Label(logo_frame, image=self._logo_small,
+                     bg=C["bg2"]).pack()
+        else:
+            tk.Label(logo_frame, text="🐝",
+                     font=("Segoe UI Emoji", 28), bg=C["bg2"],
+                     fg=C["gold"]).pack()
+
+        tk.Label(logo_frame, text="ORBEET",
+                 font=("Segoe UI", 15, "bold"),
+                 bg=C["bg2"], fg=C["gold"]).pack()
+        tk.Label(logo_frame,
+                 text="Inteligência Climática Orbital",
+                 font=("Segoe UI", 7), bg=C["bg2"],
+                 fg=C["muted"], wraplength=180,
+                 justify="center").pack(pady=(2, 0))
+
+        tk.Frame(self.sidebar, bg=C["border2"],
+                 height=1).pack(fill="x", padx=16, pady=14)
+
+        # Usuário logado
+        self.nav_user = tk.Label(
+            self.sidebar, text="", font=FONTS["small"],
+            bg=C["bg2"], fg=C["gold"],
+            wraplength=190, justify="center")
+        self.nav_user.pack(pady=(0, 10))
+
+        # Botões de navegação
+        self.nav_frame = tk.Frame(self.sidebar, bg=C["bg2"])
+        self.nav_frame.pack(fill="x", padx=8)
+
+        self.nav_btns = {}
+        nav_items = [
+            ("🏠", "Dashboard", "dashboard"),
+            ("🌾", "Fazendas", "fazendas"),
+            ("📡", "Previsões", "previsoes"),
+            ("🤖", "Recomendações", "recomendacoes"),
+            ("⚙️", "Configurações", "config"),
+        ]
+        for ico, lbl, key in nav_items:
+            f = tk.Frame(self.nav_frame, bg=C["bg2"])
+            f.pack(fill="x", pady=2)
+            accent = tk.Frame(f, bg=C["bg2"], width=4)
+            accent.pack(side="left", fill="y")
+            btn = tk.Button(
+                f, text=f"  {ico}  {lbl}",
+                command=lambda k=key: self._nav(k),
+                bg=C["bg2"], fg=C["text2"],
+                activebackground=C["bg3"],
+                activeforeground=C["gold"],
+                font=FONTS["nav"], relief="flat",
+                anchor="w", padx=8, pady=10,
+                cursor="hand2")
+            btn.pack(side="left", fill="x", expand=True)
+            btn.bind("<Enter>", lambda e, b=btn, a=accent: (
+                b.config(bg=C["bg3"], fg=C["gold"]),
+                a.config(bg=C["gold"])))
+            btn.bind("<Leave>", lambda e, b=btn, a=accent, k=key: (
+                b.config(bg=C["bg3"] if self._current_page == k else C["bg2"],
+                         fg=C["gold"] if self._current_page == k else C["text2"]),
+                a.config(bg=C["gold"] if self._current_page == k else C["bg2"])))
+            self.nav_btns[key] = (btn, accent)
+
+        # Separador e botão sair
+        tk.Frame(self.sidebar, bg=C["border2"],
+                 height=1).pack(fill="x", padx=16, side="bottom", pady=8)
+        self.btn_sair = make_btn_secondary(
+            self.sidebar, "  🚪  Sair", self._logout, width=18)
+        self.btn_sair.pack(side="bottom", padx=14, pady=(0, 14), fill="x")
+        self.btn_sair.pack_forget()
+
+        # ─ Área de conteúdo ──────────────────────────────────────────────
+        self.content = tk.Frame(self, bg=C["bg"])
+        self.content.pack(side="left", fill="both", expand=True)
+
+    def _nav(self, page):
+        self._current_page = page
+        for k, (btn, acc) in self.nav_btns.items():
+            if k == page:
+                btn.config(bg=C["bg3"], fg=C["gold"])
+                acc.config(bg=C["gold"])
+            else:
+                btn.config(bg=C["bg2"], fg=C["text2"])
+                acc.config(bg=C["bg2"])
+        pages = {
+            "dashboard": self._show_dashboard,
+            "fazendas": self._show_fazendas,
+            "previsoes": self._show_previsoes,
+            "recomendacoes": self._show_recomendacoes,
+            "config": self._show_config,
+        }
+        if page in pages:
+            pages[page]()
+
+    def _clear(self):
+        for w in self.content.winfo_children():
+            w.destroy()
+
+    def _page_header(self, icon, title, subtitle=""):
+        hdr = tk.Frame(self.content, bg=C["bg"])
+        hdr.pack(fill="x", padx=28, pady=(22, 0))
+        row = tk.Frame(hdr, bg=C["bg"])
+        row.pack(fill="x")
+        tk.Label(row, text=icon, font=("Segoe UI Emoji", 16),
+                 bg=C["bg"], fg=C["gold"]).pack(side="left", padx=(0, 8))
+        tk.Label(row, text=title, font=FONTS["title"],
+                 bg=C["bg"], fg=C["gold"]).pack(side="left")
+        if subtitle:
+            tk.Label(hdr, text=subtitle, font=FONTS["small"],
+                     bg=C["bg"], fg=C["muted"]).pack(anchor="w", pady=(2, 0))
+        tk.Frame(self.content, bg=C["border2"],
+                 height=1).pack(fill="x", padx=28, pady=(10, 14))
+
+    def _scrollable(self, parent, bg=None):
+        bg = bg or C["bg"]
+        container = tk.Frame(parent, bg=bg)
+        canvas = tk.Canvas(container, bg=bg, highlightthickness=0)
+        sb = ttk.Scrollbar(container, orient="vertical",
+                           command=canvas.yview)
+        inner = tk.Frame(canvas, bg=bg)
+        inner.bind("<Configure>",
+                   lambda _: canvas.configure(
+                       scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        canvas.bind("<MouseWheel>",
+                    lambda e: canvas.yview_scroll(
+                        -1 * (e.delta // 120), "units"))
+        return container, inner
+
+    def _make_treeview(self, parent, cols, widths=None):
+        frame = tk.Frame(parent, bg=C["bg"])
+        frame.pack(fill="both", expand=True, padx=20, pady=(0, 8))
+        sb = ttk.Scrollbar(frame, orient="vertical")
+        sb.pack(side="right", fill="y")
+        tree = ttk.Treeview(frame, columns=cols, show="headings",
+                            style="Orb.Treeview",
+                            yscrollcommand=sb.set)
+        sb.config(command=tree.yview)
+        w_list = widths or [80] * len(cols)
+        for col, w in zip(cols, w_list):
+            tree.heading(col, text=col)
+            tree.column(col, width=w, anchor="center")
+        tree.tag_configure("baixo", foreground=C["green"])
+        tree.tag_configure("moderado", foreground=C["yellow"])
+        tree.tag_configure("alto", foreground=C["red"])
+        tree.pack(fill="both", expand=True)
+        return tree
+
+    def _style_combobox(self, cb):
+        cb.configure(font=FONTS["body"])
