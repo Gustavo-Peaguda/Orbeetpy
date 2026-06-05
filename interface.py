@@ -1801,3 +1801,98 @@ class OrbeetApp(tk.Tk):
         cont, inner = self._scrollable(parent)
         cont.pack(fill="both", expand=True, padx=20, pady=8)
         carregar()
+
+
+    #  CONFIGURAÇÕES
+
+    def _show_config(self):
+        self._clear()
+        self._page_header("⚙️", "Configurações")
+
+        cont, inner = self._scrollable(self.content)
+        cont.pack(fill="both", expand=True, padx=28, pady=4)
+
+        # ── OpenAI ─────────────────────────────────────────────────────
+        section_header(inner, "🤖", "OpenAI GPT-4o mini")
+        c1 = tk.Frame(inner, bg=C["bg2"], padx=20, pady=16)
+        c1.pack(fill="x", pady=(0, 12))
+        tk.Frame(c1, bg=C["gold"], height=2).pack(fill="x", pady=(0, 10))
+        tk.Label(c1,
+                 text="Insira sua chave de API para ativar recomendações por IA.\n"
+                      "Obtenha em: platform.openai.com/api-keys",
+                 font=FONTS["small"], bg=C["bg2"],
+                 fg=C["muted"], justify="left").pack(anchor="w", pady=(0, 10))
+
+        key_row = tk.Frame(c1, bg=C["bg2"])
+        key_row.pack(fill="x")
+        v_key = tk.StringVar(value=self.openai_api_key)
+        out_k, e_k = bordered_entry(key_row, v_key, show="●", width=40)
+        out_k.pack(side="left", padx=(0, 10))
+
+        lbl_key = tk.Label(c1, text="", font=FONTS["small"], bg=C["bg2"])
+        lbl_key.pack(anchor="w", pady=(8, 0))
+        if self.openai_api_key:
+            lbl_key.config(text="✅ OpenAI ativo.", fg=C["green"])
+        else:
+            lbl_key.config(text="⚠  Motor interno ativo.", fg=C["yellow"])
+
+        def salvar_key():
+            self.openai_api_key = v_key.get().strip()
+            if self.openai_api_key:
+                lbl_key.config(text="✅ Chave salva — OpenAI ativo.", fg=C["green"])
+            else:
+                lbl_key.config(text="⚠  Sem chave — motor interno.", fg=C["yellow"])
+
+        make_btn_primary(key_row, "💾 Salvar",
+                         salvar_key, width=10).pack(side="left")
+
+        # ── Explicação IRRP ────────────────────────────────────────────
+        section_header(inner, "📊", "Como o IRRP é calculado")
+        c2 = tk.Frame(inner, bg=C["bg2"], padx=20, pady=16)
+        c2.pack(fill="x", pady=(0, 12))
+        tk.Frame(c2, bg=C["amber"], height=2).pack(fill="x", pady=(0, 10))
+        tk.Label(c2,
+                 text="O IRRP é determinado pelo PIOR fator individual. "
+                      "Qualquer variável em nível crítico\n"
+                      "eleva o índice para ALTO, independente das demais condições.",
+                 font=FONTS["small"], bg=C["bg2"],
+                 fg=C["muted"], justify="left").pack(anchor="w", pady=(0, 10))
+
+        for fator, desc in [
+            ("🌡  Temperatura", "< 12°C ou > 34°C = ALTO  |  Ideal: 16–27°C"),
+            ("🌧  Chuva", "> 50 mm = ALTO  |  > 30 mm = MODERADO"),
+            ("💧  Umidade", "< 20% = ALTO  |  Relação inversa com risco"),
+            ("💨  Vento", "> 40 km/h = ALTO  |  > 25 km/h = MODERADO"),
+        ]:
+            rf = tk.Frame(c2, bg=C["bg4"], pady=6, padx=10)
+            rf.pack(fill="x", pady=2)
+            tk.Label(rf, text=fator, font=FONTS["body_bold"],
+                     bg=C["bg4"], fg=C["text"], width=16,
+                     anchor="w").pack(side="left")
+            tk.Label(rf, text=desc, font=FONTS["small"],
+                     bg=C["bg4"], fg=C["muted"]).pack(side="left", padx=(8, 0))
+
+        tk.Label(c2, text="Faixas de risco:", font=FONTS["body_bold"],
+                 bg=C["bg2"], fg=C["text"]).pack(
+            anchor="w", pady=(12, 4))
+        for cor, cat, faixa, desc in [
+            (C["green"], "BAIXO", "0–30%", "Condições favoráveis"),
+            (C["yellow"], "MODERADO", "31–60%", "Atenção recomendada"),
+            (C["red"], "ALTO", "61–100%", "Ação preventiva imediata"),
+        ]:
+            leg = tk.Frame(c2, bg=C["bg2"])
+            leg.pack(anchor="w", pady=2)
+            tk.Frame(leg, bg=cor, width=14, height=14).pack(
+                side="left", padx=(0, 8))
+            tk.Label(leg,
+                     text=f"{cat}  {faixa}  —  {desc}",
+                     font=FONTS["small"], bg=C["bg2"],
+                     fg=cor).pack(side="left")
+
+
+
+#  PONTO DE ENTRADA
+
+if __name__ == "__main__":
+    app = OrbeetApp()
+    app.mainloop()
