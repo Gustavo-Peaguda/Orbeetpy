@@ -950,3 +950,274 @@ class OrbeetApp(tk.Tk):
                      fg=cor).pack()
             tk.Label(right, text=cat, font=FONTS["badge"],
                      bg=C["bg2"], fg=cor).pack()
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  FAZENDAS
+    # ══════════════════════════════════════════════════════════════════════
+    def _show_fazendas(self):
+        self._clear()
+        self._page_header("🌾", "Fazendas",
+                          "Gerencie suas propriedades rurais")
+        nb = ttk.Notebook(self.content)
+        nb.pack(fill="both", expand=True, padx=28, pady=4)
+
+        t1 = tk.Frame(nb, bg=C["bg2"]);
+        nb.add(t1, text="  ➕ Registrar  ")
+        t2 = tk.Frame(nb, bg=C["bg2"]);
+        nb.add(t2, text="  📋 Minhas Fazendas  ")
+        t3 = tk.Frame(nb, bg=C["bg2"]);
+        nb.add(t3, text="  ✏️ Editar / Excluir  ")
+
+        self._tab_registrar(t1)
+        self._tab_listar(t2)
+        self._tab_editar(t3)
+
+    def _tab_registrar(self, parent):
+        fr = tk.Frame(parent, bg=C["bg2"], padx=32, pady=24)
+        fr.pack(anchor="nw")
+
+        cat = self.usuario_logado['categoria']
+        lbl_it = "Plantios" if cat == "Fazendeiro" else "Tipos de abelha"
+
+        v_nome = tk.StringVar()
+        v_local = tk.StringVar()
+        v_qtd = tk.IntVar(value=0)
+
+        for lbl, var, show in [
+            ("NOME DA PROPRIEDADE", v_nome, None),
+            ("LOCALIZAÇÃO (cidade/estado)", v_local, None),
+        ]:
+            tk.Label(fr, text=lbl, font=FONTS["badge"],
+                     bg=C["bg2"], fg=C["muted"],
+                     anchor="w").pack(fill="x", pady=(10, 2))
+            out, _ = bordered_entry(fr, var, show=show, width=36)
+            out.pack(anchor="w")
+
+        tk.Label(fr, text=f"QUANTIDADE DE {lbl_it.upper()}",
+                 font=FONTS["badge"], bg=C["bg2"], fg=C["muted"],
+                 anchor="w").pack(fill="x", pady=(10, 2))
+        spin = tk.Spinbox(fr, from_=0, to=20, textvariable=v_qtd,
+                          width=6, bg=C["entry_bg"], fg=C["gold"],
+                          insertbackground=C["gold"], relief="flat",
+                          font=FONTS["body"], buttonbackground=C["bg4"],
+                          disabledbackground=C["bg4"])
+        spin.pack(anchor="w", ipady=5)
+
+        itens_frame = tk.Frame(fr, bg=C["bg2"])
+        itens_frame.pack(anchor="w", fill="x", pady=(8, 0))
+        itens_vars = []
+
+        def rebuild(*_):
+            for w in itens_frame.winfo_children(): w.destroy()
+            itens_vars.clear()
+            for i in range(v_qtd.get()):
+                rf = tk.Frame(itens_frame, bg=C["bg3"], pady=2, padx=4)
+                rf.pack(fill="x", pady=2)
+                tk.Label(rf, text=f"{i + 1}.",
+                         font=FONTS["small"], bg=C["bg3"],
+                         fg=C["muted"], width=3).pack(side="left")
+                v = tk.StringVar()
+                e = tk.Entry(rf, textvariable=v,
+                             bg=C["entry_bg"], fg=C["entry_fg"],
+                             insertbackground=C["gold"], relief="flat",
+                             font=FONTS["body"], width=28)
+                e.pack(side="left", ipady=4, padx=4)
+                itens_vars.append(v)
+
+        v_qtd.trace_add("write", rebuild)
+
+        lbl_err = tk.Label(fr, text="", fg=C["red"],
+                           bg=C["bg2"], font=FONTS["small"])
+        lbl_err.pack(anchor="w", pady=(10, 0))
+
+        def salvar():
+            nome = v_nome.get().strip()
+            local = v_local.get().strip()
+            if not nome or not local:
+                lbl_err.config(text="⚠  Preencha nome e localização.")
+                return
+            itens = [v.get().strip() for v in itens_vars if v.get().strip()]
+            criar_fazenda(self.fazendas, nome, local, cat, itens,
+                          self.usuario_logado['nome'])
+            salvar_dados(self.usuarios, self.fazendas)
+            lbl_err.config(text="")
+            messagebox.showinfo("Sucesso", f"Fazenda '{nome}' registrada!")
+            v_nome.set("");
+            v_local.set("");
+            v_qtd.set(0)
+
+        tk.Frame(fr, bg=C["border"], height=1).pack(
+            fill="x", pady=(16, 8))
+        make_btn_primary(fr, "💾  Registrar Fazenda",
+                         salvar, width=22).pack(anchor="w")
+
+    def _tab_listar(self, parent):
+        cont, inner = self._scrollable(parent, C["bg2"])
+        cont.pack(fill="both", expand=True, padx=16, pady=12)
+        minhas = fazendas_do_usuario(self.fazendas, self.usuario_logado['nome'])
+        if not minhas:
+            tk.Label(inner, text="Nenhuma fazenda cadastrada.",
+                     bg=C["bg2"], fg=C["muted"],
+                     font=FONTS["body"]).pack(pady=30)
+            return
+        cat = self.usuario_logado['categoria']
+        for f in minhas:
+            itens = f.get('plantios' if cat == 'Fazendeiro' else 'abelhas', [])
+            lbl_it = "Plantios" if cat == "Fazendeiro" else "Abelhas"
+            c = tk.Frame(inner, bg=C["bg3"], padx=16, pady=12)
+            c.pack(fill="x", pady=6)
+            tk.Frame(c, bg=C["gold"], height=2).pack(fill="x", pady=(0, 8))
+            tk.Label(c, text=f"🌿  {f['nome']}",
+                     font=FONTS["section"], bg=C["bg3"],
+                     fg=C["text"]).pack(anchor="w")
+            for txt in [
+                f"📍  {f['localizacao']}",
+                f"🌱  {lbl_it}: {', '.join(itens) if itens else '—'}",
+                f"📊  {len(f.get('historico_previsoes', []))} dias monitorados  |  "
+                f"🤖  {len(f.get('historico_recomendacoes', []))} recomendações"
+            ]:
+                tk.Label(c, text=txt, font=FONTS["small"],
+                         bg=C["bg3"], fg=C["muted"]).pack(anchor="w")
+
+    def _tab_editar(self, parent):
+        minhas = fazendas_do_usuario(self.fazendas, self.usuario_logado['nome'])
+        if not minhas:
+            tk.Label(parent, text="Nenhuma fazenda para editar.",
+                     bg=C["bg2"], fg=C["muted"],
+                     font=FONTS["body"]).pack(pady=30)
+            return
+
+        cat = self.usuario_logado['categoria']
+        chave = 'plantios' if cat == 'Fazendeiro' else 'abelhas'
+        lbl_it = "Plantio" if cat == 'Fazendeiro' else "Tipo de abelha"
+
+        cont, inner = self._scrollable(parent, C["bg2"])
+        cont.pack(fill="both", expand=True)
+        fr = tk.Frame(inner, bg=C["bg2"], padx=24, pady=18)
+        fr.pack(fill="x")
+
+        tk.Label(fr, text="SELECIONAR PROPRIEDADE",
+                 font=FONTS["badge"], bg=C["bg2"],
+                 fg=C["muted"]).pack(anchor="w", pady=(0, 4))
+        nomes = [f['nome'] for f in minhas]
+        v_sel = tk.StringVar(value=nomes[0])
+        cb = ttk.Combobox(fr, textvariable=v_sel, values=nomes,
+                          state="readonly", width=34)
+        cb.pack(anchor="w", pady=(0, 14))
+        self._style_combobox(cb)
+
+        tk.Frame(fr, bg=C["border2"], height=1).pack(
+            fill="x", pady=(0, 12))
+
+        v_nome = tk.StringVar()
+        v_local = tk.StringVar()
+
+        for lbl, var in [("NOME", v_nome), ("LOCALIZAÇÃO", v_local)]:
+            tk.Label(fr, text=lbl, font=FONTS["badge"],
+                     bg=C["bg2"], fg=C["muted"],
+                     anchor="w").pack(fill="x", pady=(8, 2))
+            out, _ = bordered_entry(fr, var, width=36)
+            out.pack(anchor="w")
+
+        tk.Label(fr, text=f"{lbl_it.upper()}S CADASTRADOS",
+                 font=FONTS["badge"], bg=C["bg2"], fg=C["muted"],
+                 anchor="w").pack(fill="x", pady=(14, 4))
+
+        itens_frame = tk.Frame(fr, bg=C["bg2"])
+        itens_frame.pack(fill="x", anchor="w")
+        itens_vars = []
+
+        def rebuild_itens(items_list):
+            for w in itens_frame.winfo_children(): w.destroy()
+            itens_vars.clear()
+            for idx, val in enumerate(items_list):
+                rf = tk.Frame(itens_frame, bg=C["bg3"], pady=2, padx=6)
+                rf.pack(fill="x", pady=2)
+                tk.Label(rf, text=f"{idx + 1}.", font=FONTS["small"],
+                         bg=C["bg3"], fg=C["muted"], width=3).pack(side="left")
+                v = tk.StringVar(value=val)
+                itens_vars.append(v)
+                e = tk.Entry(rf, textvariable=v,
+                             bg=C["entry_bg"], fg=C["entry_fg"],
+                             insertbackground=C["gold"], relief="flat",
+                             font=FONTS["body"], width=28)
+                e.pack(side="left", ipady=3, padx=(2, 6))
+
+                def rm(cv=v):
+                    cur = [x.get().strip() for x in itens_vars if x is not cv]
+                    rebuild_itens(cur)
+
+                tk.Button(rf, text="✕", command=rm,
+                          bg=C["bg3"], fg=C["red"],
+                          activebackground=C["border"], activeforeground=C["red"],
+                          font=FONTS["small"], relief="flat",
+                          cursor="hand2", padx=4).pack(side="left")
+
+            add_f = tk.Frame(itens_frame, bg=C["bg2"])
+            add_f.pack(fill="x", pady=(6, 0))
+            v_new = tk.StringVar()
+            e_new = tk.Entry(add_f, textvariable=v_new,
+                             bg=C["entry_bg"], fg=C["entry_fg"],
+                             insertbackground=C["gold"], relief="flat",
+                             font=FONTS["body"], width=28)
+            e_new.pack(side="left", ipady=4, padx=(0, 6))
+
+            def add_item():
+                txt = v_new.get().strip()
+                if txt:
+                    rebuild_itens([x.get().strip() for x in itens_vars] + [txt])
+
+            make_btn_secondary(add_f, f"+ {lbl_it}",
+                               add_item, width=16).pack(side="left")
+
+        def load_fazenda(*_):
+            f = next((x for x in minhas if x['nome'] == v_sel.get()), None)
+            if f:
+                v_nome.set(f['nome'])
+                v_local.set(f['localizacao'])
+                rebuild_itens(f.get(chave, []))
+
+        v_sel.trace_add("write", load_fazenda)
+        load_fazenda()
+
+        tk.Frame(fr, bg=C["border2"], height=1).pack(
+            fill="x", pady=(16, 8))
+
+        lbl_status = tk.Label(fr, text="", font=FONTS["small"],
+                              bg=C["bg2"], fg=C["green"])
+        lbl_status.pack(anchor="w", pady=(0, 8))
+
+        def salvar_edit():
+            f = next((x for x in minhas if x['nome'] == v_sel.get()), None)
+            if not f: return
+            nn = v_nome.get().strip()
+            nl = v_local.get().strip()
+            if not nn or not nl:
+                lbl_status.config(
+                    text="⚠  Nome e localização obrigatórios.", fg=C["red"])
+                return
+            editar_fazenda(f, nn, nl,
+                           [v.get().strip() for v in itens_vars if v.get().strip()],
+                           cat)
+            salvar_dados(self.usuarios, self.fazendas)
+            lbl_status.config(text=f"✅  '{nn}' atualizada.", fg=C["green"])
+            cb['values'] = [x['nome'] for x in minhas]
+            v_sel.set(nn)
+
+        def excluir():
+            f = next((x for x in minhas if x['nome'] == v_sel.get()), None)
+            if not f: return
+            if messagebox.askyesno("Confirmar",
+                                   f"Excluir permanentemente '{f['nome']}'?"):
+                excluir_fazenda(self.fazendas, f)
+                salvar_dados(self.usuarios, self.fazendas)
+                messagebox.showinfo("OK", "Fazenda excluída.")
+                self._show_fazendas()
+
+        btns = tk.Frame(fr, bg=C["bg2"])
+        btns.pack(anchor="w")
+        make_btn_primary(btns, "💾  Salvar alterações",
+                         salvar_edit, width=20).pack(
+            side="left", padx=(0, 8))
+        make_btn_danger(btns, "🗑  Excluir",
+                        excluir, width=12).pack(side="left")
