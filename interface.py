@@ -671,3 +671,197 @@ class OrbeetApp(tk.Tk):
 
     def _style_combobox(self, cb):
         cb.configure(font=FONTS["body"])
+    # ══════════════════════════════════════════════════════════════════════
+    #  LOGIN
+    # ══════════════════════════════════════════════════════════════════════
+    def _show_login(self):
+        self._clear()
+        self.nav_frame.pack_forget()
+        self.btn_sair.pack_forget()
+
+        # Fundo com hexágonos decorativos via Canvas
+        canvas = tk.Canvas(self.content, bg=C["bg"],
+                           highlightthickness=0)
+        canvas.place(relwidth=1, relheight=1)
+        self._draw_hex_bg(canvas)
+
+        # Card central
+        outer = tk.Frame(self.content, bg=C["bg2"],
+                         padx=3, pady=3)
+        outer.place(relx=0.5, rely=0.5, anchor="center")
+        tk.Frame(outer, bg=C["gold"], height=3).pack(fill="x")
+        inner = tk.Frame(outer, bg=C["bg2"], padx=40, pady=32)
+        inner.pack()
+
+        # Logo
+        if self._logo_img:
+            tk.Label(inner, image=self._logo_img,
+                     bg=C["bg2"]).pack(pady=(0, 8))
+        else:
+            tk.Label(inner, text="🐝",
+                     font=("Segoe UI Emoji", 44),
+                     bg=C["bg2"], fg=C["gold"]).pack()
+
+        tk.Label(inner, text="ORBEET",
+                 font=("Segoe UI", 22, "bold"),
+                 bg=C["bg2"], fg=C["gold"]).pack()
+        tk.Label(inner,
+                 text="Inteligência Climática Orbital",
+                 font=FONTS["small"], bg=C["bg2"],
+                 fg=C["muted"]).pack(pady=(0, 24))
+
+        # Campos
+        v_nome = tk.StringVar()
+        v_senha = tk.StringVar()
+
+        for lbl, var, show in [("NOME COMPLETO", v_nome, None),
+                               ("SENHA", v_senha, "●")]:
+            tk.Label(inner, text=lbl,
+                     font=FONTS["badge"], bg=C["bg2"],
+                     fg=C["muted"], anchor="w").pack(
+                fill="x", pady=(8, 2))
+            outer_e, e = bordered_entry(inner, var, show=show, width=30)
+            outer_e.pack(fill="x")
+
+        # Erro
+        self._lbl_login_err = tk.Label(
+            inner, text="", fg=C["red"],
+            bg=C["bg2"], font=FONTS["small"])
+        self._lbl_login_err.pack(pady=(6, 0))
+
+        def do_login(e=None):
+            u = autenticar_usuario(
+                self.usuarios, v_nome.get().strip(), v_senha.get().strip())
+            if u:
+                self.usuario_logado = u
+                self.nav_frame.pack(fill="x", padx=8)
+                self.btn_sair.pack(side="bottom", padx=14,
+                                   pady=(0, 14), fill="x")
+                self.nav_user.config(
+                    text=f"👤  {u['nome']}\n{u['categoria']}")
+                self._nav("dashboard")
+            else:
+                self._lbl_login_err.config(
+                    text="❌ Nome ou senha incorretos.")
+
+        self.bind("<Return>", do_login)
+
+        btns = tk.Frame(inner, bg=C["bg2"])
+        btns.pack(fill="x", pady=(16, 0))
+        make_btn_primary(btns, "  Entrar  →", do_login,
+                         width=20).pack(side="left", padx=(0, 8))
+        make_btn_secondary(btns, "Criar conta",
+                           self._show_registro,
+                           width=13).pack(side="left")
+
+    def _draw_hex_bg(self, canvas):
+        """Desenha hexágonos decorativos no fundo."""
+        canvas.update_idletasks()
+        W = canvas.winfo_width() or 800
+        H = canvas.winfo_height() or 600
+        size = 38
+        h = size * 1.732
+        cols = int(W // (size * 1.5)) + 2
+        rows = int(H // h) + 2
+        for row in range(rows):
+            for col in range(cols):
+                x = col * size * 1.5
+                y = row * h + (h / 2 if col % 2 else 0)
+                pts = []
+                for i in range(6):
+                    import math
+                    angle = math.radians(60 * i - 30)
+                    pts += [x + size * 0.95 * math.cos(angle),
+                            y + size * 0.95 * math.sin(angle)]
+                alpha = 0.04 + 0.02 * ((row + col) % 3)
+                col_hex = blend_color(C["bg"], C["amber_dark"], alpha)
+                canvas.create_polygon(pts, fill=col_hex,
+                                      outline=C["border"], width=1)
+
+    # ── REGISTRO ────────────────────────────────────────────────────────────
+    def _show_registro(self):
+        self._clear()
+
+        canvas = tk.Canvas(self.content, bg=C["bg"], highlightthickness=0)
+        canvas.place(relwidth=1, relheight=1)
+        self._draw_hex_bg(canvas)
+
+        outer = tk.Frame(self.content, bg=C["bg2"], padx=3, pady=3)
+        outer.place(relx=0.5, rely=0.5, anchor="center")
+        tk.Frame(outer, bg=C["gold"], height=3).pack(fill="x")
+        inner = tk.Frame(outer, bg=C["bg2"], padx=40, pady=28)
+        inner.pack()
+
+        tk.Label(inner, text="Criar Conta",
+                 font=FONTS["subtitle"], bg=C["bg2"],
+                 fg=C["gold"]).pack(pady=(0, 4))
+        tk.Label(inner,
+                 text="Preencha os dados para se cadastrar no ORBEET",
+                 font=FONTS["small"], bg=C["bg2"],
+                 fg=C["muted"]).pack(pady=(0, 16))
+
+        v_nome = tk.StringVar()
+        v_senha = tk.StringVar()
+        v_senha2 = tk.StringVar()
+        v_cat = tk.StringVar(value="Fazendeiro")
+
+        for lbl, var, show in [
+            ("NOME COMPLETO", v_nome, None),
+            ("SENHA", v_senha, "●"),
+            ("CONFIRMAR SENHA", v_senha2, "●"),
+        ]:
+            tk.Label(inner, text=lbl, font=FONTS["badge"],
+                     bg=C["bg2"], fg=C["muted"],
+                     anchor="w").pack(fill="x", pady=(8, 2))
+            out, _ = bordered_entry(inner, var, show=show, width=30)
+            out.pack(fill="x")
+
+        # Perfil
+        tk.Label(inner, text="PERFIL", font=FONTS["badge"],
+                 bg=C["bg2"], fg=C["muted"],
+                 anchor="w").pack(fill="x", pady=(10, 4))
+        cat_row = tk.Frame(inner, bg=C["bg2"])
+        cat_row.pack(anchor="w")
+        for opt in ["Fazendeiro", "Apicultor"]:
+            tk.Radiobutton(
+                cat_row, text=opt, variable=v_cat, value=opt,
+                bg=C["bg2"], fg=C["text"],
+                selectcolor=C["bg4"],
+                activebackground=C["bg2"],
+                activeforeground=C["gold"],
+                font=FONTS["body"]).pack(side="left", padx=(0, 16))
+
+        lbl_err = tk.Label(inner, text="", fg=C["red"],
+                           bg=C["bg2"], font=FONTS["small"])
+        lbl_err.pack(pady=(8, 0))
+
+        def do_criar():
+            ok, msg = criar_usuario(
+                self.usuarios,
+                v_nome.get().strip(),
+                v_senha.get().strip(),
+                v_cat.get())
+            if not ok:
+                lbl_err.config(text=msg);
+                return
+            if v_senha.get() != v_senha2.get():
+                lbl_err.config(text="⚠  As senhas não coincidem.");
+                return
+            salvar_dados(self.usuarios, self.fazendas)
+            messagebox.showinfo("Sucesso", "Conta criada!\nFaça login para continuar.")
+            self._show_login()
+
+        btns = tk.Frame(inner, bg=C["bg2"])
+        btns.pack(fill="x", pady=(14, 0))
+        make_btn_primary(btns, "Criar conta  →", do_criar,
+                         width=20).pack(side="left", padx=(0, 8))
+        make_btn_secondary(btns, "← Voltar",
+                           self._show_login, width=12).pack(side="left")
+
+    def _logout(self):
+        self.unbind("<Return>")
+        self.usuario_logado = None
+        self.nav_user.config(text="")
+        self.nav_frame.pack_forget()
+        self.btn_sair.pack_forget()
+        self._show_login()
