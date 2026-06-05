@@ -865,3 +865,88 @@ class OrbeetApp(tk.Tk):
         self.nav_frame.pack_forget()
         self.btn_sair.pack_forget()
         self._show_login()
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  DASHBOARD
+    # ══════════════════════════════════════════════════════════════════════
+    def _show_dashboard(self):
+        self._clear()
+        u = self.usuario_logado
+        self._page_header("🏠", "Dashboard",
+                          f"Bem-vindo(a), {u['nome']} — {u['categoria']}")
+
+        minhas = fazendas_do_usuario(self.fazendas, u['nome'])
+        total_p = sum(len(f.get('historico_previsoes', [])) for f in minhas)
+        total_r = sum(len(f.get('historico_recomendacoes', [])) for f in minhas)
+
+        # ── Métricas ──────────────────────────────────────────────────────
+        met_row = tk.Frame(self.content, bg=C["bg"])
+        met_row.pack(fill="x", padx=28, pady=(0, 16))
+        metrics = [
+            ("🌾", str(len(minhas)), "Propriedades"),
+            ("📡", str(total_p), "Dias monitorados"),
+            ("🤖", str(total_r), "Recomendações"),
+        ]
+        for ico, val, lbl in metrics:
+            mc = tk.Frame(met_row, bg=C["bg2"], padx=20, pady=14)
+            mc.pack(side="left", expand=True, fill="x", padx=(0, 12))
+            tk.Frame(mc, bg=C["gold"], height=2).pack(fill="x", pady=(0, 10))
+            top = tk.Frame(mc, bg=C["bg2"])
+            top.pack(fill="x")
+            tk.Label(top, text=ico, font=("Segoe UI Emoji", 18),
+                     bg=C["bg2"]).pack(side="left", padx=(0, 8))
+            tk.Label(top, text=val, font=FONTS["metric"],
+                     bg=C["bg2"], fg=C["gold"]).pack(side="left")
+            tk.Label(mc, text=lbl, font=FONTS["small"],
+                     bg=C["bg2"], fg=C["muted"]).pack(anchor="w")
+
+        section_header(self.content, "🗺", "Status das Propriedades")
+
+        if not minhas:
+            tk.Label(self.content,
+                     text="Você ainda não possui fazendas.\n"
+                          "Acesse Fazendas → Registrar Fazenda para começar.",
+                     font=FONTS["body"], bg=C["bg"], fg=C["muted"],
+                     justify="center").pack(pady=30)
+            return
+
+        cont, inner = self._scrollable(self.content)
+        cont.pack(fill="both", expand=True, padx=28)
+
+        for f in minhas:
+            hist = f.get('historico_previsoes', [])
+            if hist:
+                critico = max(hist, key=lambda d: d.get('irrp_pct', 0))
+                pct, cat = critico['irrp_pct'], critico['irrp_cat']
+            else:
+                pct, cat = 0, 'BAIXO'
+            cor = irrp_color_hex(cat)
+            chave = 'plantios' if u['categoria'] == 'Fazendeiro' else 'abelhas'
+            itens = f.get(chave, [])
+
+            row = tk.Frame(inner, bg=C["bg2"], pady=0)
+            row.pack(fill="x", pady=5)
+            # Faixa lateral de cor
+            tk.Frame(row, bg=cor, width=4).pack(side="left", fill="y")
+            body = tk.Frame(row, bg=C["bg2"], padx=14, pady=12)
+            body.pack(side="left", fill="both", expand=True)
+
+            info = tk.Frame(body, bg=C["bg2"])
+            info.pack(side="left", fill="both", expand=True)
+            tk.Label(info, text=f['nome'],
+                     font=FONTS["section"], bg=C["bg2"],
+                     fg=C["text"]).pack(anchor="w")
+            resumo = (', '.join(itens[:2]) + ('…' if len(itens) > 2 else '')) if itens else '—'
+            tk.Label(info,
+                     text=f"📍 {f['localizacao']}  ·  {resumo}",
+                     font=FONTS["small"], bg=C["bg2"],
+                     fg=C["muted"]).pack(anchor="w", pady=(2, 0))
+
+            # Badge IRRP
+            right = tk.Frame(body, bg=C["bg2"])
+            right.pack(side="right", padx=(0, 8))
+            tk.Label(right, text=f"{pct}%",
+                     font=FONTS["metric_sm"], bg=C["bg2"],
+                     fg=cor).pack()
+            tk.Label(right, text=cat, font=FONTS["badge"],
+                     bg=C["bg2"], fg=cor).pack()
