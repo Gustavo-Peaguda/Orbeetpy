@@ -57,3 +57,16 @@ def is_empty_queue(queue):
 def size_queue(queue):
     """Retorna o tamanho da fila."""
     return len(queue)
+
+#  BUSCA BINÁRIA RECURSIVA
+
+def busca_binaria_recursiva(lista, alvo, inicio, fim):
+    if inicio > fim:
+        return -1
+    meio = (inicio + fim) // 2
+    if lista[meio]['data'] == alvo:
+        return meio
+    elif lista[meio]['data'] < alvo:
+        return busca_binaria_recursiva(lista, alvo, meio + 1, fim)
+    else:
+        return busca_binaria_recursiva(lista, alvo, inicio, meio - 1)
