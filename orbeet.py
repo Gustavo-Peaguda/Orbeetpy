@@ -208,3 +208,105 @@ def obter_dados_climaticos(lat, lon):
         ]
     except Exception:
         return []
+
+#  OPENAI — API de Recomendação
+
+def gerar_recomendacao_openai(temp_max, chuva, umidade, vento, fator,
+                               fazenda, usuario, api_key):
+    """
+    Gera recomendação personalizada via OpenAI.
+    Cai no fallback se a chave não estiver disponível ou ocorrer erro.
+    """
+    chave_valida = (
+        OPENAI_LIB_DISPONIVEL
+        and api_key
+        and api_key.strip() not in ("", "SUA_CHAVE_AQUI")
+    )
+    if not chave_valida:
+        return _fallback_recomendacao(fator, temp_max, chuva, umidade, vento)
+
+    try:
+        if usuario['categoria'] == 'Fazendeiro':
+            itens = fazenda.get('plantios', [])
+            label = "Culturas plantadas"
+        else:
+            itens = fazenda.get('abelhas', [])
+            label = "Espécies de abelha criadas"
+        itens_str = ', '.join(itens) if itens else 'Não informado'
+
+        prompt = (
+            f"Você é especialista em apicultura e agricultura de precisão no Brasil.\n"
+            f"Propriedade \"{fazenda.get('nome','?')}\" — {label}: {itens_str}\n"
+            f"Dados climáticos: Temperatura máxima {temp_max}°C | Chuva {chuva} mm | "
+            f"Umidade {umidade}% | Vento {vento} km/h\n"
+            f"Fator de risco principal: {fator}\n\n"
+            f"Gere um guia preventivo prático (máx 220 palavras) específico para os "
+            f"itens desta propriedade, com ações concretas para proteger os "
+            f"polinizadores. Linguagem simples e direta."
+        )
+
+        client = OpenAI(api_key=api_key.strip())
+        response = client.responses.create(
+            model="gpt-4o-mini",
+            input=prompt,
+        )
+        return response.output_text.strip()
+
+    except Exception as e:
+        return (
+            _fallback_recomendacao(fator, temp_max, chuva, umidade, vento)
+            + f"\n\n⚠ [Erro ao chamar OpenAI: {e}]"
+        )
+
+
+def _fallback_recomendacao(fator, temp_max, chuva, umidade, vento):
+    fp = fator.lower()
+    if "precipitação" in fp or "chuva" in fp:
+        return (
+            f"🌧  ALERTA DE TEMPORAL\n\nPrecipitação de {chuva:.1f} mm detectada.\n\n"
+            "• Incline as colmeias para frente para escoar água\n"
+            "• Instale lonas impermeáveis sobre as caixas\n"
+            "• Adicione xarope de açúcar (1:1) dentro das colmeias\n"
+            "• Evite abrir colmeias durante chuvas intensas\n"
+            "• Inspecione infiltrações e umidade interna pós-chuva\n"
+            "• Mantenha reservas alimentares para 5+ dias"
+        )
+    if "térmico" in fp or "temperatura" in fp:
+        return (
+            f"🌡  ALERTA DE ONDA DE CALOR\n\nTemperatura de {temp_max:.1f}°C.\n\n"
+            "• Instale sombra artificial (sombrite 50%) sobre as colmeias\n"
+            "• Posicione entradas voltadas para leste\n"
+            "• Disponibilize água fresca a até 30 m do apiário\n"
+            "• Realize manejos antes das 9h ou ao entardecer\n"
+            "• Adicione melgueiras para ampliar ventilação\n"
+            "• Monitore 'bearding' (cachos externos de abelhas)"
+        )
+    if "umidade" in fp or "seca" in fp:
+        return (
+            f"🏜  ALERTA DE SECA EXTREMA\n\nUmidade de {umidade:.0f}%.\n\n"
+            "• Instale bebedouros próximos a todas as colmeias\n"
+            "• Ofereça alimentação proteica (pólen artificial) e xarope\n"
+            "• Irrigue as culturas florais para manter as flores abertas\n"
+            "• Plante girassol, catingueira e jurema (resistentes à seca)\n"
+            "• Reduza frequência de inspeções para minimizar estresse\n"
+            "• Monitore estoques internos de mel e pólen semanalmente"
+        )
+    if "vento" in fp:
+        return (
+            f"💨  ALERTA DE VENTO FORTE\n\nVento de {vento:.1f} km/h.\n\n"
+            "• Instale quebra-ventos naturais (bananeiras, cercas vivas)\n"
+            "• Oriente entradas das colmeias contra o vento predominante\n"
+            "• Ancore as caixas com cintas ou pesos superiores\n"
+            "• Evite manejos durante rajadas intensas\n"
+            "• Monitore temperatura interna (vento frio mata crias)\n"
+            "• Reduza parcialmente a entrada das colmeias"
+        )
+    return (
+        "⚠  ALERTA COMPOSTO\n\nMúltiplos fatores de risco detectados.\n\n"
+        "• Monitoramento diário visual de todas as colmeias\n"
+        "• Verifique estoques de mel e pólen\n"
+        "• Garanta água fresca disponível\n"
+        "• Reduza manejos invasivos\n"
+        "• Acione técnico apícola regional\n"
+        "• Registre observações diárias"
+    )
