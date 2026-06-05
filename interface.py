@@ -1221,3 +1221,583 @@ class OrbeetApp(tk.Tk):
             side="left", padx=(0, 8))
         make_btn_danger(btns, "🗑  Excluir",
                         excluir, width=12).pack(side="left")
+
+    #  PREVISÕES
+
+    def _show_previsoes(self):
+        self._clear()
+        self._page_header("📡", "Previsões Climáticas",
+                          "Dados orbitais via Open-Meteo")
+
+        minhas = fazendas_do_usuario(self.fazendas, self.usuario_logado['nome'])
+        if not minhas:
+            tk.Label(self.content, text="Cadastre uma fazenda primeiro.",
+                     bg=C["bg"], fg=C["muted"], font=FONTS["body"]).pack(pady=40)
+            return
+
+        sel_row = tk.Frame(self.content, bg=C["bg"])
+        sel_row.pack(fill="x", padx=28, pady=(0, 8))
+        tk.Label(sel_row, text="Propriedade:", font=FONTS["small"],
+                 bg=C["bg"], fg=C["muted"]).pack(side="left", padx=(0, 8))
+        v_sel = tk.StringVar(value=minhas[0]['nome'])
+        cb = ttk.Combobox(sel_row, textvariable=v_sel,
+                          values=[f['nome'] for f in minhas],
+                          state="readonly", width=32)
+        cb.pack(side="left")
+        self._style_combobox(cb)
+
+        nb = ttk.Notebook(self.content)
+        nb.pack(fill="both", expand=True, padx=28, pady=4)
+
+        t1 = tk.Frame(nb, bg=C["bg"]);
+        nb.add(t1, text="  🔭 Próximos 15 dias  ")
+        t2 = tk.Frame(nb, bg=C["bg"]);
+        nb.add(t2, text="  📅 Histórico 15 dias  ")
+        t3 = tk.Frame(nb, bg=C["bg"]);
+        nb.add(t3, text="  🔍 Buscar por Data  ")
+
+        self._tab_futuro(t1, minhas, v_sel)
+        self._tab_historico(t2, minhas, v_sel)
+        self._tab_busca_binaria(t3, minhas, v_sel)
+
+    def _tab_futuro(self, parent, minhas, v_sel):
+        top = tk.Frame(parent, bg=C["bg"])
+        top.pack(fill="x", padx=20, pady=(12, 6))
+
+        left = tk.Frame(top, bg=C["bg"])
+        left.pack(side="left", fill="both", expand=True)
+
+        self._lbl_fut_status = tk.Label(left, text="", bg=C["bg"],
+                                        fg=C["muted"], font=FONTS["small"])
+        self._lbl_fut_status.pack(anchor="w", pady=(0, 6))
+        make_btn_primary(left, "🛰  Atualizar Previsão",
+                         lambda: self._buscar_futuro(minhas, v_sel),
+                         width=22).pack(anchor="w")
+
+        right = tk.Frame(top, bg=C["bg2"], padx=12, pady=8)
+        right.pack(side="right")
+        tk.Label(right, text="Pior dia", font=FONTS["badge"],
+                 bg=C["bg2"], fg=C["muted"]).pack()
+        self._gauge_fut = IRRPGauge(right, size=130)
+        self._gauge_fut.pack()
+
+        tk.Frame(parent, bg=C["border2"], height=1).pack(
+            fill="x", padx=20, pady=(0, 6))
+
+        tk.Label(parent,
+                 text="Evolução do IRRP — Próximos 15 dias",
+                 font=FONTS["small"], bg=C["bg"],
+                 fg=C["muted"]).pack(anchor="w", padx=20)
+        self._chart_fut = IRRPBarChart(parent, height=185)
+        self._chart_fut.pack(fill="x", padx=20, pady=(2, 8))
+
+        tk.Frame(parent, bg=C["border2"], height=1).pack(
+            fill="x", padx=20, pady=(0, 6))
+
+        cols = ("Data", "T.Máx °C", "Chuva mm", "Umidade %",
+                "Vento km/h", "IRRP %", "Risco")
+        widths = [90, 75, 75, 75, 85, 60, 80]
+        self._tree_fut = self._make_treeview(parent, cols, widths)
+
+    def _buscar_futuro(self, minhas, v_sel):
+        fazenda = next((f for f in minhas if f['nome'] == v_sel.get()), None)
+        if not fazenda: return
+        self._chart_fut.set_dados([])
+
+        def on_prog(msg, cor):
+            self._lbl_fut_status.config(
+                text=msg, fg=C.get(cor, C["muted"]))
+            self.update()
+
+        def on_fim(registros, nome_local):
+            salvar_dados(self.usuarios, self.fazendas)
+            self._chart_fut.set_dados(registros)
+            self._tree_fut.delete(*self._tree_fut.get_children())
+            for d in registros:
+                def fmt(v, dec): return f"{v:.{dec}f}" if v is not None else "N/D"
+
+                cat = d['irrp_cat']
+                self._tree_fut.insert("", "end",
+                                      values=(d['data'], fmt(d['temp_max'], 1),
+                                              fmt(d['chuva'], 1), fmt(d['umidade'], 0),
+                                              fmt(d['vento'], 1), d['irrp_pct'], cat),
+                                      tags=(cat.lower(),))
+            if registros:
+                crit = max(registros, key=lambda x: x.get('irrp_pct', 0))
+                self._gauge_fut.update_irrp(crit['irrp_pct'], crit['irrp_cat'])
+            self._lbl_fut_status.config(
+                text=f"✅  {len(registros)} dias · {nome_local}",
+                fg=C["green"])
+
+        buscar_previsao_completa(fazenda, on_prog, on_fim)
+
+    def _tab_historico(self, parent, minhas, v_sel):
+        top = tk.Frame(parent, bg=C["bg"])
+        top.pack(fill="x", padx=20, pady=(12, 6))
+
+        left = tk.Frame(top, bg=C["bg"])
+        left.pack(side="left", fill="both", expand=True)
+
+        self._lbl_hist_status = tk.Label(left, text="", bg=C["bg"],
+                                         fg=C["muted"], font=FONTS["small"])
+        self._lbl_hist_status.pack(anchor="w", pady=(0, 6))
+        make_btn_primary(left, "📅  Carregar Histórico",
+                         lambda: self._buscar_hist(minhas, v_sel),
+                         width=22).pack(anchor="w")
+
+        right = tk.Frame(top, bg=C["bg2"], padx=12, pady=8)
+        right.pack(side="right")
+        tk.Label(right, text="Dia selecionado", font=FONTS["badge"],
+                 bg=C["bg2"], fg=C["muted"]).pack()
+        self._gauge_hist = IRRPGauge(right, size=130)
+        self._gauge_hist.pack()
+
+        tk.Frame(parent, bg=C["border2"], height=1).pack(
+            fill="x", padx=20, pady=(0, 6))
+
+        tk.Label(parent,
+                 text="Evolução do IRRP — Últimos 15 dias",
+                 font=FONTS["small"], bg=C["bg"],
+                 fg=C["muted"]).pack(anchor="w", padx=20)
+        self._chart_hist = IRRPBarChart(parent, height=185)
+        self._chart_hist.pack(fill="x", padx=20, pady=(2, 8))
+
+        tk.Frame(parent, bg=C["border2"], height=1).pack(
+            fill="x", padx=20, pady=(0, 6))
+
+        cols = ("Data", "T.Máx °C", "Chuva mm", "Umidade %",
+                "Vento km/h", "IRRP %", "Risco")
+        widths = [90, 75, 75, 75, 85, 60, 80]
+        self._tree_hist = self._make_treeview(parent, cols, widths)
+        self._tree_hist.bind("<<TreeviewSelect>>",
+                             lambda _: self._on_hist_select())
+
+    def _buscar_hist(self, minhas, v_sel):
+        fazenda = next((f for f in minhas if f['nome'] == v_sel.get()), None)
+        if not fazenda: return
+        self._chart_hist.set_dados([])
+
+        def on_prog(msg, cor):
+            self._lbl_hist_status.config(
+                text=msg, fg=C.get(cor, C["muted"]))
+            self.update()
+
+        def on_fim(historico):
+            self._dados_historico = historico
+            self._chart_hist.set_dados(historico)
+            self._tree_hist.delete(*self._tree_hist.get_children())
+            for d in historico:
+                def fmt(v, dec): return f"{v:.{dec}f}" if v is not None else "N/D"
+
+                cat = d['irrp_cat']
+                self._tree_hist.insert("", "end",
+                                       values=(d['data'], fmt(d['temp_max'], 1),
+                                               fmt(d['chuva'], 1), fmt(d['umidade'], 0),
+                                               fmt(d['vento'], 1), d['irrp_pct'], cat),
+                                       tags=(cat.lower(),))
+            self._lbl_hist_status.config(
+                text=f"✅  {len(historico)} dias carregados",
+                fg=C["green"])
+
+        buscar_historico_completo(fazenda, on_prog, on_fim)
+
+    def _on_hist_select(self):
+        sel = self._tree_hist.selection()
+        if not sel or not self._dados_historico: return
+        data_alvo = str(self._tree_hist.item(sel[0])['values'][0])
+        idx = busca_binaria_recursiva(
+            self._dados_historico, data_alvo,
+            0, len(self._dados_historico) - 1)
+        if idx != -1:
+            reg = self._dados_historico[idx]
+            self._gauge_hist.update_irrp(reg['irrp_pct'], reg['irrp_cat'])
+
+    def _tab_busca_binaria(self, parent, minhas, v_sel):
+        """
+        Aba que demonstra explicitamente a Busca Binária Recursiva.
+        O usuário digita uma data (AAAA-MM-DD) e o sistema localiza
+        o registro nos dados climáticos carregados via API, mostrando
+        o passo a passo do algoritmo na tela.
+        """
+        # ── Cabeçalho explicativo ─────────────────────────────────────────
+        info = tk.Frame(parent, bg=C["bg2"], padx=20, pady=14)
+        info.pack(fill="x", padx=20, pady=(16, 0))
+        tk.Frame(info, bg=C["gold"], height=2).pack(fill="x", pady=(0, 10))
+        tk.Label(
+            info,
+            text="🔍  BUSCA BINÁRIA RECURSIVA",
+            font=FONTS["section"], bg=C["bg2"], fg=C["gold"]
+        ).pack(anchor="w")
+        tk.Label(
+            info,
+            text=(
+                "Algoritmo: divide a lista ordenada ao meio a cada chamada recursiva.\n"
+                "Complexidade: O(log n)  —  muito mais rápido que busca linear O(n).\n"
+                "Os dados precisam estar ordenados por data (garantido pela API)."
+            ),
+            font=FONTS["small"], bg=C["bg2"], fg=C["muted"],
+            justify="left"
+        ).pack(anchor="w", pady=(4, 0))
+
+        # ── Campo de busca ────────────────────────────────────────────────
+        busca_fr = tk.Frame(parent, bg=C["bg"], padx=20, pady=14)
+        busca_fr.pack(fill="x", padx=20, pady=(12, 0))
+
+        tk.Label(
+            busca_fr, text="Data para buscar (AAAA-MM-DD):",
+            font=FONTS["body_bold"], bg=C["bg"], fg=C["text"]
+        ).pack(side="left", padx=(0, 10))
+
+        v_data = tk.StringVar(value=datetime.now().strftime('%Y-%m-%d'))
+        out_e, entry_data = bordered_entry(busca_fr, v_data, width=14)
+        out_e.pack(side="left", padx=(0, 10))
+
+        lbl_prop = tk.Label(
+            busca_fr, text="na propriedade:",
+            font=FONTS["body"], bg=C["bg"], fg=C["muted"]
+        )
+        lbl_prop.pack(side="left", padx=(0, 6))
+        lbl_prop_nome = tk.Label(
+            busca_fr, textvariable=v_sel,
+            font=FONTS["body_bold"], bg=C["bg"], fg=C["gold"]
+        )
+        lbl_prop_nome.pack(side="left")
+
+        # ── Área de resultado ─────────────────────────────────────────────
+        result_fr = tk.Frame(parent, bg=C["bg"], padx=20)
+        result_fr.pack(fill="both", expand=True, padx=20, pady=(10, 0))
+
+        # Log do algoritmo (passo a passo)
+        tk.Label(
+            result_fr, text="Log de execução da busca binária recursiva:",
+            font=FONTS["small"], bg=C["bg"], fg=C["muted"]
+        ).pack(anchor="w")
+
+        log_box = tk.Text(
+            result_fr, height=8, bg=C["bg2"], fg=C["text2"],
+            insertbackground=C["gold"], relief="flat",
+            font=FONTS["mono"], state="disabled"
+        )
+        log_box.pack(fill="x", pady=(4, 10))
+
+        # Card de resultado
+        card_fr = tk.Frame(result_fr, bg=C["bg2"], padx=20, pady=14)
+        card_fr.pack(fill="x")
+        tk.Frame(card_fr, bg=C["border2"], height=2).pack(fill="x", pady=(0, 10))
+
+        lbl_resultado = tk.Label(
+            card_fr,
+            text="Digite uma data e clique em Buscar.",
+            font=FONTS["body"], bg=C["bg2"], fg=C["muted"],
+            justify="left"
+        )
+        lbl_resultado.pack(anchor="w")
+
+        # ── Função de busca com log ───────────────────────────────────────
+        def executar_busca():
+            fazenda = next((f for f in minhas if f['nome'] == v_sel.get()), None)
+
+            # Combina previsões + histórico para ter os 30 registros
+            todos = sorted(
+                fazenda.get('historico_previsoes', []) +
+                fazenda.get('historico_hist', []) if fazenda else [],
+                key=lambda x: x['data']
+            )
+
+            # Fallback: usa qualquer lista disponível
+            if not todos and fazenda:
+                todos = sorted(
+                    fazenda.get('historico_previsoes', []),
+                    key=lambda x: x['data']
+                )
+
+            data_alvo = v_data.get().strip()
+
+            # Limpa log e resultado
+            log_box.config(state="normal")
+            log_box.delete("1.0", "end")
+
+            if not fazenda:
+                lbl_resultado.config(
+                    text="❌  Fazenda não encontrada.", fg=C["red"])
+                log_box.config(state="disabled")
+                return
+
+            if not todos:
+                lbl_resultado.config(
+                    text="⚠  Nenhum dado carregado.\n"
+                         "Primeiro carregue os dados nas abas 'Próximos 15 dias' "
+                         "e 'Histórico 15 dias'.",
+                    fg=C["yellow"])
+                log_box.config(state="disabled")
+                return
+
+            n = len(todos)
+            log_box.insert("end",
+                           f"▶  Lista com {n} registros ordenados por data.\n"
+                           f"▶  Alvo: '{data_alvo}'\n"
+                           f"{'─' * 52}\n"
+                           )
+
+            # ── Busca binária recursiva com log embutido ──────────────────
+            def busca_recursiva_com_log(lista, alvo, inicio, fim, chamada=1):
+                if inicio > fim:
+                    log_box.insert("end",
+                                   f"  Chamada #{chamada}: início({inicio}) > fim({fim})"
+                                   f" → NÃO ENCONTRADO\n"
+                                   )
+                    return -1
+
+                meio = (inicio + fim) // 2
+                log_box.insert("end",
+                               f"  Chamada #{chamada}: "
+                               f"início={inicio}, meio={meio}, fim={fim} "
+                               f"→ lista[{meio}]['data'] = '{lista[meio]['data']}'\n"
+                               )
+
+                if lista[meio]['data'] == alvo:
+                    log_box.insert("end",
+                                   f"  ✅ ENCONTRADO no índice {meio}!\n")
+                    return meio
+                elif lista[meio]['data'] < alvo:
+                    log_box.insert("end",
+                                   f"     '{lista[meio]['data']}' < '{alvo}' "
+                                   f"→ busca na metade DIREITA [{meio + 1}..{fim}]\n"
+                                   )
+                    return busca_recursiva_com_log(lista, alvo, meio + 1, fim, chamada + 1)
+                else:
+                    log_box.insert("end",
+                                   f"     '{lista[meio]['data']}' > '{alvo}' "
+                                   f"→ busca na metade ESQUERDA [{inicio}..{meio - 1}]\n"
+                                   )
+                    return busca_recursiva_com_log(lista, alvo, inicio, meio - 1, chamada + 1)
+
+            idx = busca_recursiva_com_log(todos, data_alvo, 0, n - 1)
+            log_box.config(state="disabled")
+
+            if idx == -1:
+                datas_disp = f"{todos[0]['data']} até {todos[-1]['data']}"
+                lbl_resultado.config(
+                    text=f"❌  Data '{data_alvo}' não encontrada.\n"
+                         f"    Datas disponíveis: {datas_disp}",
+                    fg=C["red"]
+                )
+            else:
+                reg = todos[idx]
+
+                def fmt(v, d):
+                    return f"{v:.{d}f}" if v is not None else "N/D"
+
+                cor = irrp_color_hex(reg['irrp_cat'])
+                lbl_resultado.config(
+                    text=(
+                        f"✅  Registro encontrado — índice {idx} de {n - 1}\n\n"
+                        f"  📅  Data       : {reg['data']}\n"
+                        f"  🌡  Temp. Máx  : {fmt(reg.get('temp_max'), 1)} °C\n"
+                        f"  🌧  Chuva      : {fmt(reg.get('chuva'), 1)} mm\n"
+                        f"  💧  Umidade    : {fmt(reg.get('umidade'), 0)} %\n"
+                        f"  💨  Vento      : {fmt(reg.get('vento'), 1)} km/h\n"
+                        f"  📊  IRRP       : {reg.get('irrp_pct', 'N/D')}%  {reg.get('irrp_cat', '')}\n"
+                        f"  ⚠   Fator      : {reg.get('fator_principal', 'N/D')}"
+                    ),
+                    fg=cor
+                )
+
+        # ── Botão de busca ────────────────────────────────────────────────
+        make_btn_primary(
+            busca_fr, "🔍  Buscar", executar_busca, width=12
+        ).pack(side="left", padx=(10, 0))
+
+        # Permite buscar pressionando Enter no campo de data
+        entry_data.bind("<Return>", lambda _: executar_busca())
+
+
+    #  RECOMENDAÇÕES
+
+    def _show_recomendacoes(self):
+        self._clear()
+        self._page_header("🤖", "Recomendações de Manejo",
+                          "Orientações personalizadas por IA")
+
+        minhas = fazendas_do_usuario(self.fazendas, self.usuario_logado['nome'])
+        if not minhas:
+            tk.Label(self.content, text="Cadastre uma fazenda primeiro.",
+                     bg=C["bg"], fg=C["muted"], font=FONTS["body"]).pack(pady=40)
+            return
+
+        sel_row = tk.Frame(self.content, bg=C["bg"])
+        sel_row.pack(fill="x", padx=28, pady=(0, 8))
+        tk.Label(sel_row, text="Propriedade:", font=FONTS["small"],
+                 bg=C["bg"], fg=C["muted"]).pack(side="left", padx=(0, 8))
+        v_sel = tk.StringVar(value=minhas[0]['nome'])
+        cb = ttk.Combobox(sel_row, textvariable=v_sel,
+                          values=[f['nome'] for f in minhas],
+                          state="readonly", width=32)
+        cb.pack(side="left")
+        self._style_combobox(cb)
+
+        nb = ttk.Notebook(self.content)
+        nb.pack(fill="both", expand=True, padx=28, pady=4)
+
+        t1 = tk.Frame(nb, bg=C["bg"]);
+        nb.add(t1, text="  ✨ Nova Recomendação  ")
+        t2 = tk.Frame(nb, bg=C["bg"]);
+        nb.add(t2, text="  📜 Histórico  ")
+
+        self._tab_nova_rec(t1, minhas, v_sel)
+        self._tab_hist_rec(t2, minhas, v_sel)
+
+    def _tab_nova_rec(self, parent, minhas, v_sel):
+        top = tk.Frame(parent, bg=C["bg"])
+        top.pack(fill="x", padx=20, pady=(12, 6))
+
+        gauge = IRRPGauge(top, size=130)
+        gauge.pack(side="right", padx=(0, 8))
+
+        info_fr = tk.Frame(top, bg=C["bg"])
+        info_fr.pack(side="left", fill="both", expand=True)
+
+        lbl_info = tk.Label(info_fr,
+                            text="Selecione uma fazenda com previsão calculada.",
+                            bg=C["bg"], fg=C["muted"], font=FONTS["body"],
+                            justify="left", wraplength=400)
+        lbl_info.pack(anchor="w")
+        lbl_fator = tk.Label(info_fr, text="", bg=C["bg"],
+                             fg=C["text2"], font=FONTS["body"],
+                             justify="left", wraplength=400)
+        lbl_fator.pack(anchor="w", pady=(4, 0))
+        lbl_status = tk.Label(info_fr, text="", bg=C["bg"],
+                              fg=C["muted"], font=FONTS["small"])
+        lbl_status.pack(anchor="w", pady=(8, 0))
+
+        def load_info(*_):
+            f = next((x for x in minhas if x['nome'] == v_sel.get()), None)
+            if not f or not f.get('historico_previsoes'):
+                lbl_info.config(
+                    text="⚠  Esta fazenda não tem previsões calculadas.\n"
+                         "Acesse Previsões → Próximos 15 dias primeiro.")
+                gauge.update_irrp(0, "BAIXO")
+                return
+            crit = max(f['historico_previsoes'],
+                       key=lambda d: d.get('irrp_pct', 0))
+            gauge.update_irrp(crit['irrp_pct'], crit['irrp_cat'])
+            lbl_info.config(
+                text=f"Dia crítico: {crit['data']}  ·  "
+                     f"IRRP: {crit['irrp_pct']}% {crit['irrp_cat']}")
+            lbl_fator.config(
+                text=f"Fator principal: {crit['fator_principal']}")
+
+        v_sel.trace_add("write", load_info)
+        load_info()
+
+        tk.Frame(parent, bg=C["border2"], height=1).pack(
+            fill="x", padx=20)
+
+        # ── Botão ANTES do text widget para não ser empurrado para fora ──
+        btn_fr = tk.Frame(parent, bg=C["bg"])
+        btn_fr.pack(fill="x", padx=20, pady=(10, 6))
+
+        def gerar():
+            f = next((x for x in minhas if x['nome'] == v_sel.get()), None)
+            if not f or not f.get('historico_previsoes'):
+                messagebox.showwarning("Aviso", "Gere previsoes primeiro.")
+                return
+            crit = max(f['historico_previsoes'],
+                       key=lambda d: d.get('irrp_pct', 0))
+            pct, cat, fator = (crit['irrp_pct'], crit['irrp_cat'],
+                               crit['fator_principal'])
+
+            tem_chave = bool(
+                self.openai_api_key
+                and self.openai_api_key.strip() not in ("", "SUA_CHAVE_AQUI")
+            )
+
+            if tem_chave:
+                lbl_status.config(
+                    text="Gerando recomendacao com IA...",
+                    fg=C["yellow"])
+                self.update()
+                texto = gerar_recomendacao_openai(
+                    crit.get('temp_max'), crit.get('chuva'),
+                    crit.get('umidade'), crit.get('vento'),
+                    fator, f, self.usuario_logado,
+                    self.openai_api_key)
+            elif pct <= 30:
+                texto = (
+                    "IRRP em nivel BAIXO\n\n"
+                    "As condicoes climaticas estao favoraveis a polinizacao.\n"
+                    "Nenhuma medida preventiva emergencial necessaria.\n\n"
+                    "Continue monitorando e mantenha as boas praticas!")
+            else:
+                texto = gerar_recomendacao_openai(
+                    crit.get('temp_max'), crit.get('chuva'),
+                    crit.get('umidade'), crit.get('vento'),
+                    fator, f, self.usuario_logado,
+                    self.openai_api_key)
+
+            registrar_recomendacao(f, crit, texto)
+            salvar_dados(self.usuarios, self.fazendas)
+
+            self._txt_rec.config(state="normal")
+            self._txt_rec.delete("1.0", "end")
+            self._txt_rec.insert("end", texto)
+            self._txt_rec.config(state="disabled")
+            lbl_status.config(
+                text="✅ Recomendação gerada.", fg=C["green"])
+
+        make_btn_primary(btn_fr, "🤖  Gerar Recomendação com IA",
+                         gerar, width=30).pack(side="left")
+        self._txt_rec = tk.Text(
+            parent,
+            height=16,
+            wrap="word",
+            bg=C["bg2"],
+            fg=C["text"],
+            insertbackground=C["gold"],
+            relief="flat",
+            font=FONTS["body"]
+        )
+
+        self._txt_rec.pack(
+            fill="both",
+            expand=True,
+            padx=20,
+            pady=(8, 20)
+        )
+
+        self._txt_rec.config(state="disabled")
+
+    def _tab_hist_rec(self, parent, minhas, v_sel):
+        def carregar(*_):
+            for w in inner.winfo_children(): w.destroy()
+            f = next((x for x in minhas if x['nome'] == v_sel.get()), None)
+            if not f: return
+            recs = f.get('historico_recomendacoes', [])
+            if not recs:
+                tk.Label(inner, text="Nenhuma recomendação registrada.",
+                         bg=C["bg"], fg=C["muted"],
+                         font=FONTS["body"]).pack(pady=20)
+                return
+            for rec in reversed(recs):
+                cor = irrp_color_hex(rec['irrp_cat'])
+                c = tk.Frame(inner, bg=C["bg2"], padx=14, pady=10)
+                c.pack(fill="x", pady=4)
+                tk.Frame(c, bg=cor, height=2).pack(fill="x")
+                hdr = tk.Frame(c, bg=C["bg2"])
+                hdr.pack(fill="x", pady=(6, 4))
+                tk.Label(hdr, text=f"📌 {rec['gerado_em']}",
+                         font=FONTS["body_bold"], bg=C["bg2"],
+                         fg=C["text"]).pack(side="left")
+                tk.Label(hdr,
+                         text=f"IRRP {rec['irrp_pct']}%  {rec['irrp_cat']}",
+                         font=FONTS["body"], bg=C["bg2"],
+                         fg=cor).pack(side="right")
+                tk.Label(c, text=rec['texto'],
+                         font=FONTS["mono"], bg=C["bg2"],
+                         fg=C["text2"], justify="left",
+                         wraplength=700, anchor="w").pack(anchor="w")
+
+        v_sel.trace_add("write", carregar)
+        cont, inner = self._scrollable(parent)
+        cont.pack(fill="both", expand=True, padx=20, pady=8)
+        carregar()
