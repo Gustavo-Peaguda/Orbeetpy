@@ -70,3 +70,85 @@ def busca_binaria_recursiva(lista, alvo, inicio, fim):
         return busca_binaria_recursiva(lista, alvo, meio + 1, fim)
     else:
         return busca_binaria_recursiva(lista, alvo, inicio, meio - 1)
+
+
+#  CÁLCULO DO IRRP
+
+_MAX_SCORES = {'temp': 35.0, 'chuva': 30.0, 'umidade': 20.0, 'vento': 15.0}
+
+
+def _score_temp(t):
+    if t is None: return 0.0
+    if t < 12:             return 35.0
+    if 12 <= t < 16:       return 35.0 - ((t - 12) / 4.0) * 35.0
+    if 16 <= t <= 27:      return 0.0
+    if 27 < t <= 34:       return ((t - 27) / 7.0) * 35.0
+    return 35.0
+
+
+def _score_chuva(c):
+    if c is None: return 0.0
+    if c <= 0:    return 0.0
+    if c <= 10:   return 7.5 * c / 10.0
+    if c <= 30:   return 7.5 + 12.5 * (c - 10) / 20.0
+    if c <= 50:   return 20.0 + 10.0 * (c - 30) / 20.0
+    return 30.0
+
+
+def _score_umidade(u):
+    if u is None: return 0.0
+    if u >= 80:   return 0.0
+    if u >= 60:   return 5.0 * (80 - u) / 20.0
+    if u >= 40:   return 5.0 + 7.5 * (60 - u) / 20.0
+    if u >= 20:   return 12.5 + 7.5 * (40 - u) / 20.0
+    return 20.0
+
+
+def _score_vento(v):
+    if v is None: return 0.0
+    if v <= 5:    return 0.0
+    if v <= 15:   return 5.0 * (v - 5) / 10.0
+    if v <= 25:   return 5.0 + 5.0 * (v - 15) / 10.0
+    if v <= 40:   return 10.0 + 5.0 * (v - 25) / 15.0
+    return 15.0
+
+
+def calcular_irrp(temp_max, chuva, umidade, vento):
+    """
+    IRRP = pior fator normalizado (0-100).
+    Retorna: (irrp_pct, categoria, fator_dominante_str)
+    """
+    scores = {
+        'temp':    _score_temp(temp_max),
+        'chuva':   _score_chuva(chuva),
+        'umidade': _score_umidade(umidade),
+        'vento':   _score_vento(vento),
+    }
+    normalized = {
+        k: min(100.0, (scores[k] / _MAX_SCORES[k]) * 100.0)
+        for k in scores
+    }
+    irrp_pct = round(max(normalized.values()))
+    cat = (
+        "BAIXO"    if irrp_pct <= 30 else
+        "MODERADO" if irrp_pct <= 60 else
+        "ALTO"
+    )
+    fator_key = max(normalized, key=normalized.get)
+    fatores = {
+        'temp':    f"Temperatura crítica ({temp_max:.1f}°C)"  if temp_max is not None else "Temperatura",
+        'chuva':   f"Precipitação intensa ({chuva:.1f} mm)"   if chuva    is not None else "Chuva",
+        'umidade': f"Baixa umidade ({umidade:.0f}%)"          if umidade  is not None else "Seca",
+        'vento':   f"Vento forte ({vento:.1f} km/h)"          if vento    is not None else "Vento",
+    }
+    fator = (
+        "Condições favoráveis à polinização"
+        if max(scores.values()) < 2.0
+        else fatores[fator_key]
+    )
+    return irrp_pct, cat, fator
+
+
+def irrp_color_hex(cat):
+    """Retorna a cor hex para a categoria de risco."""
+    return {"BAIXO": "#4CAF50", "MODERADO": "#FFC107", "ALTO": "#F44336"}.get(cat, "#A08050")
