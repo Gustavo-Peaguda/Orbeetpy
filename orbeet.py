@@ -152,3 +152,59 @@ def calcular_irrp(temp_max, chuva, umidade, vento):
 def irrp_color_hex(cat):
     """Retorna a cor hex para a categoria de risco."""
     return {"BAIXO": "#4CAF50", "MODERADO": "#FFC107", "ALTO": "#F44336"}.get(cat, "#A08050")
+
+#  APIs OPEN-METEO
+
+def obter_coordenadas(localizacao):
+    """Geolocaliza uma cidade. Retorna (lat, lon, nome) ou (None, None, None)."""
+    try:
+        url = (f"https://geocoding-api.open-meteo.com/v1/search"
+               f"?name={requests.utils.quote(localizacao)}&count=1&language=pt")
+        r = requests.get(url, timeout=12)
+        r.raise_for_status()
+        d = r.json()
+        if 'results' not in d or not d['results']:
+            return None, None, None
+        res = d['results'][0]
+        return res['latitude'], res['longitude'], res.get('name', localizacao)
+    except Exception:
+        return None, None, None
+
+
+def obter_dados_climaticos(lat, lon):
+    """
+    Busca dados climáticos diários (passados + futuros) da Open-Meteo.
+    Retorna lista de dicts com: data, temp_max, chuva, umidade, vento.
+    """
+    try:
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            f"&daily=temperature_2m_max,precipitation_sum,"
+            f"relative_humidity_2m_max,wind_speed_10m_max"
+            f"&timezone=America%2FSao_Paulo&past_days=15&forecast_days=15"
+        )
+        r = requests.get(url, timeout=12)
+        r.raise_for_status()
+        d = r.json()
+        if 'daily' not in d:
+            return []
+        dd = d['daily']
+        datas, temps, chuvas, umids, ventos = (
+            dd.get(k, []) for k in [
+                'time', 'temperature_2m_max', 'precipitation_sum',
+                'relative_humidity_2m_max', 'wind_speed_10m_max'
+            ]
+        )
+        return [
+            {
+                'data':     datas[i],
+                'temp_max': temps[i]  if i < len(temps)  else None,
+                'chuva':    chuvas[i] if i < len(chuvas) else None,
+                'umidade':  umids[i]  if i < len(umids)  else None,
+                'vento':    ventos[i] if i < len(ventos) else None,
+            }
+            for i in range(len(datas))
+        ]
+    except Exception:
+        return []
