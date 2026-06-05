@@ -140,7 +140,7 @@ Exemplo de comandos:
 git clone https://github.com/Gustavo-Peaguda/Orbeetpy.git
 pip install pillow requests openai
 pip install requests
-python main.py
+python interface.py
 ```
 
 ---
