@@ -310,3 +310,175 @@ def _fallback_recomendacao(fator, temp_max, chuva, umidade, vento):
         "• Acione técnico apícola regional\n"
         "• Registre observações diárias"
     )
+
+#  JSON
+
+def salvar_dados(usuarios, fazendas):
+    """Persiste usuários e fazendas em JSON."""
+    try:
+        with open(ARQUIVO_DADOS, 'w', encoding='utf-8') as f:
+            json.dump(
+                {'usuarios': usuarios, 'fazendas': fazendas},
+                f, ensure_ascii=False, indent=2
+            )
+        return True
+    except Exception as e:
+        return False
+
+
+def carregar_dados():
+    """Carrega dados do JSON. Retorna ([], []) se não existir."""
+    if not os.path.exists(ARQUIVO_DADOS):
+        return [], []
+    try:
+        with open(ARQUIVO_DADOS, 'r', encoding='utf-8') as f:
+            d = json.load(f)
+        return d.get('usuarios', []), d.get('fazendas', [])
+    except Exception:
+        return [], []
+
+
+
+#  HELPERS DE NEGÓCIO
+
+def fazendas_do_usuario(fazendas, nome_usuario):
+    """Filtra fazendas pertencentes ao usuário logado."""
+    return [f for f in fazendas if f['usuario'] == nome_usuario]
+
+
+def buscar_previsao_completa(fazenda, callback_progresso=None, callback_fim=None):
+    """
+    Busca dados futuros (próximos 15 dias) em thread separada.
+    callback_progresso(msg, cor) — atualiza status
+    callback_fim(registros, nome_local) — chamado ao terminar
+    """
+    def tarefa():
+        if callback_progresso:
+            callback_progresso("⏳ Consultando satélites...", "yellow")
+
+        lat, lon, nome_local = obter_coordenadas(fazenda['localizacao'])
+        if lat is None:
+            if callback_progresso:
+                callback_progresso("❌ Não foi possível geolocalizar.", "red")
+            return
+
+        dados  = obter_dados_climaticos(lat, lon)
+        hoje   = datetime.now().strftime('%Y-%m-%d')
+        futuro = sorted(
+            [d for d in dados if d['data'] >= hoje],
+            key=lambda x: x['data']
+        )[:15]
+
+        fila = FilaPrevisoes()
+        for reg in futuro:
+            pct, cat, fator = calcular_irrp(
+                reg['temp_max'], reg['chuva'], reg['umidade'], reg['vento']
+            )
+            reg.update({'irrp_pct': pct, 'irrp_cat': cat, 'fator_principal': fator})
+            fila.enqueue(reg)
+
+        registros = []
+        while not fila.esta_vazia():
+            registros.append(fila.dequeue())
+
+        fazenda['historico_previsoes'] = registros
+
+        if callback_fim:
+            callback_fim(registros, nome_local)
+
+    threading.Thread(target=tarefa, daemon=True).start()
+
+
+def buscar_historico_completo(fazenda, callback_progresso=None, callback_fim=None):
+    """
+    Busca dados históricos (últimos 15 dias) em thread separada.
+    """
+    def tarefa():
+        if callback_progresso:
+            callback_progresso("⏳ Buscando histórico...", "yellow")
+
+        lat, lon, _ = obter_coordenadas(fazenda['localizacao'])
+        if lat is None:
+            if callback_progresso:
+                callback_progresso("❌ Geolocalização falhou.", "red")
+            return
+
+        dados    = obter_dados_climaticos(lat, lon)
+        hoje     = datetime.now().strftime('%Y-%m-%d')
+        historico = sorted(
+            [d for d in dados if d['data'] < hoje],
+            key=lambda x: x['data']
+        )
+        for reg in historico:
+            pct, cat, fator = calcular_irrp(
+                reg['temp_max'], reg['chuva'], reg['umidade'], reg['vento']
+            )
+            reg.update({'irrp_pct': pct, 'irrp_cat': cat, 'fator_principal': fator})
+
+        if callback_fim:
+            callback_fim(historico)
+
+    threading.Thread(target=tarefa, daemon=True).start()
+
+
+def criar_usuario(usuarios, nome, senha, categoria):
+    """Valida e cria um novo usuário. Retorna (True, '') ou (False, msg_erro)."""
+    if len(nome.split()) < 2:
+        return False, "⚠  Informe nome e sobrenome."
+    if not senha:
+        return False, "⚠  A senha não pode ser vazia."
+    if any(u['nome'].lower() == nome.lower() for u in usuarios):
+        return False, f"⚠  Usuário '{nome}' já existe."
+    usuarios.append({'nome': nome, 'senha': senha, 'categoria': categoria})
+    return True, ""
+
+
+def autenticar_usuario(usuarios, nome, senha):
+    """Retorna o dict do usuário se autenticado, ou None."""
+    for u in usuarios:
+        if u['nome'].lower() == nome.lower() and u['senha'] == senha:
+            return u
+    return None
+
+
+def criar_fazenda(fazendas, nome_fazenda, localizacao, categoria_usuario, itens, nome_usuario):
+    """Cria e registra uma nova fazenda."""
+    chave = 'plantios' if categoria_usuario == 'Fazendeiro' else 'abelhas'
+    nova = {
+        'nome':        nome_fazenda,
+        'localizacao': localizacao,
+        'usuario':     nome_usuario,
+        chave:         itens,
+        'historico_previsoes':     [],
+        'historico_recomendacoes': [],
+    }
+    fazendas.append(nova)
+    return nova
+
+
+def editar_fazenda(fazenda, novo_nome, nova_localizacao, novos_itens, categoria_usuario):
+    """Atualiza os dados de uma fazenda existente in-place."""
+    chave = 'plantios' if categoria_usuario == 'Fazendeiro' else 'abelhas'
+    fazenda['nome']        = novo_nome
+    fazenda['localizacao'] = nova_localizacao
+    fazenda[chave]         = novos_itens
+
+
+def excluir_fazenda(fazendas, fazenda):
+    """Remove a fazenda da lista."""
+    if fazenda in fazendas:
+        fazendas.remove(fazenda)
+        return True
+    return False
+
+
+def registrar_recomendacao(fazenda, critico, texto):
+    """Salva uma recomendação no histórico da fazenda."""
+    fazenda.setdefault('historico_recomendacoes', []).append({
+        'gerado_em': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'dia_ref':   critico['data'],
+        'irrp_pct':  critico['irrp_pct'],
+        'irrp_cat':  critico['irrp_cat'],
+        'fator':     critico['fator_principal'],
+        'texto':     texto,
+    })
