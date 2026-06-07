@@ -165,7 +165,7 @@ Além disso, o sistema demonstra a aplicabilidade de conceitos de ciência de da
 
 ---
 
-## 12. Conclusão
+## 11. Conclusão
 
 O ORBEET apresenta uma abordagem estruturada para o monitoramento ambiental aplicado à agricultura. Ao transformar dados climáticos em indicadores e recomendações, o sistema possibilita decisões mais informadas e estratégicas.
 
